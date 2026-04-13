@@ -1,0 +1,13 @@
+graph TD
+    subgraph AWS["AWS Cloud"]
+        APIGateway[API Gateway]
+        DDB[(DynamoDB)]
+        S3[(S3)]
+        VPC[VPC]
+    end
+
+    Lambda --> APIGateway
+    APIGateway --> DDB
+    DDB --> S3
+    S3 --> VPC
+    DDB -.->|metrics| CW[CloudWatch]
