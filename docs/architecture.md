@@ -1,6 +1,7 @@
 # Architecture
 
 This page explains what each part of the stack does and how a document moves through it.
+
 ## The four constructs
 
 `TapStack` wires together four CDK constructs:
@@ -11,6 +12,7 @@ This page explains what each part of the stack does and how a document moves thr
 | `StorageStack` | A KMS key, the documents bucket, the `documents` table and the `api-keys` table |
 | `ComputeStack` | Three Lambda functions, their IAM roles, three dead-letter queues and five CloudWatch alarms |
 | `ApiStack` | The REST API, the Lambda authorizer, an API key and a usage plan |
+
 ## How an upload works
 
 1. The client calls `POST /documents` with an `X-Api-Key` header and the file as base64 JSON.
@@ -20,11 +22,13 @@ This page explains what each part of the stack does and how a document moves thr
 5. The client calls `GET /documents/{id}` to read the status.
 
 The diagrams in [`../diagrams/`](../diagrams/) show the same flow.
+
 ## Why there's no NAT gateway
 
 All three functions run in isolated subnets. They reach S3 and DynamoDB through gateway endpoints, which have no hourly charge. Two NAT gateways would cost about $73 a month in us-east-1 before any traffic.
 
 The trade-off: the functions can't call anything on the internet. A third-party scanner or webhook would need an interface endpoint or a different design.
+
 ## Things to know before you change it
 
 - **The authorizer reads DynamoDB on every request.** Its cache TTL is 0. A TTL of 300 seconds cuts the reads, but a revoked key then keeps working for up to 5 minutes.

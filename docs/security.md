@@ -1,6 +1,7 @@
 # Security
 
 The controls this version has, and the gaps it still has.
+
 ## What's in place
 
 | Control | Where |
@@ -12,6 +13,7 @@ The controls this version has, and the gaps it still has.
 | Point-in-time recovery on the documents table | `StorageStack` |
 | A separate IAM role per function, scoped to its table, bucket and key | `ComputeStack` |
 | Every API method behind the Lambda authorizer | `ApiStack` |
+
 ## Known gaps
 
 - API keys sit in the table as plain text.
@@ -22,6 +24,7 @@ The controls this version has, and the gaps it still has.
 - Log groups have no retention period.
 
 The newer [aws-cdk-private-lambda-document-intake](https://github.com/InfraTales/aws-cdk-private-lambda-document-intake) repo closes all of these. Use it for anything beyond learning.
+
 ## Reporting a problem
 
 Follow the steps in [SECURITY.md](../SECURITY.md) to report it privately.
