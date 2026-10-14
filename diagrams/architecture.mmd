@@ -1,13 +1,28 @@
-graph TD
-    subgraph AWS["AWS Cloud"]
-        APIGateway[API Gateway]
-        DDB[(DynamoDB)]
-        S3[(S3)]
-        VPC[VPC]
-    end
+graph LR
+    Client[Client app] -->|X-Api-Key| APIGW[API Gateway REST]
 
-    Lambda --> APIGateway
-    APIGateway --> DDB
-    DDB --> S3
-    S3 --> VPC
-    DDB -.->|metrics| CW[CloudWatch]
+    subgraph AWS["AWS Cloud"]
+        APIGW -->|authorize| Auth[Lambda: authorizer]
+        APIGW -->|POST/GET /documents| Api[Lambda: apiHandler]
+
+        subgraph VPC["VPC, isolated subnets, no NAT"]
+            Auth
+            Api
+            Proc[Lambda: documentProcessor]
+            S3GW[S3 gateway endpoint]
+            DDBGW[DynamoDB gateway endpoint]
+            APIEP[API Gateway interface endpoint]
+        end
+
+        Auth --> DDBGW
+        Api --> S3GW
+        Api --> DDBGW
+        Proc --> S3GW
+        Proc --> DDBGW
+        S3GW --> S3[(S3 bucket, KMS)]
+        DDBGW --> Keys[(DynamoDB: api-keys)]
+        DDBGW --> Docs[(DynamoDB: documents)]
+        S3 -->|ObjectCreated documents/| Proc
+        Proc -.->|on failure| DLQ[SQS dead-letter queue]
+        Proc -.->|errors, duration| CW[CloudWatch alarms]
+    end

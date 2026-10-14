@@ -1,30 +1,29 @@
-# Cost Model
+# Cost
 
-## Overview
+These are on-demand prices in us-east-1 from the AWS Price List API, checked on 2026-10-14. Check them again before you rely on them.
 
-This is a reference cost model. Actual costs vary by usage, region, and configuration.
+## A quiet month (dev or low traffic)
 
-## Key Cost Drivers
+Assume 1,000 uploads of about 1 MB each.
 
-- Zero NAT Gateways saves ~$65-130/month per AZ but means Lambdas cannot reach any non-AWS internet endpoint — third-party virus scanning, webhook callbacks, or external validation APIs all break silently at runtime unless you add Interface endpoints or redesign the flow. [inferred]
-- API Gateway Interface VPC endpoint adds ~$16/month per AZ and roughly 1-2ms of latency per call compared to the public endpoint, but it is the only way to keep the API callable from inside the VPC without internet exposure. [inferred]
+| Item | Math | Monthly |
+|---|---|---|
+| API Gateway interface endpoint | 2 AZs × $0.01/hr × 730 hours | $14.60 |
+| CloudWatch alarms | 5 alarms × $0.10 | $0.50 |
+| AWS KMS | 1 customer managed key | $1.00 |
+| Amazon S3 | 1 GB × $0.023, plus requests | about $0.03 |
+| API Gateway (REST) | about 3,000 requests × $3.50/M | about $0.01 |
+| Lambda, DynamoDB, SQS | inside the free tier at this volume | $0.00 |
+| **Total** | | **about $16** |
 
-## Estimated Monthly Cost
+## What drives the bill
 
-| Component | Dev (₹) | Staging (₹) | Production (₹) |
-|-----------|---------|-------------|-----------------|
-| Compute   | ₹2,000–5,000 | ₹8,000–15,000 | ₹25,000–60,000 |
-| Database  | ₹1,500–3,000 | ₹5,000–12,000 | ₹15,000–40,000 |
-| Networking| ₹500–1,000   | ₹2,000–5,000  | ₹5,000–15,000  |
-| Monitoring| ₹200–500     | ₹1,000–2,000  | ₹3,000–8,000   |
-| **Total** | **₹4,200–9,500** | **₹16,000–34,000** | **₹48,000–1,23,000** |
+- **The interface endpoint is 90% of it.** Nothing in this version calls it, so removing it takes the monthly cost to under $2. The newer repo drops it.
+- **No NAT gateway.** Two of them would add about $73 a month, plus $0.045 for every GB they process.
+- **Requests and storage grow with traffic.** At 100,000 uploads a month, add about $0.35 for API Gateway, a few dollars of S3 storage, and some Lambda time once you pass the free tier.
 
-> Estimates based on ap-south-1 (Mumbai) pricing. Actual costs depend on traffic, data volume, and reserved capacity.
+## Ways to cut it
 
-## Cost Optimization Strategies
-
-- Use Savings Plans or Reserved Instances for predictable workloads
-- Enable auto-scaling with conservative scale-in policies
-- Use DynamoDB on-demand for dev, provisioned for production
-- Leverage S3 Intelligent-Tiering for infrequently accessed data
-- Review Cost Explorer weekly for anomalies
+- Remove the API Gateway interface endpoint if nothing inside the VPC calls the API.
+- Set a retention period on the Lambda log groups. Without one, CloudWatch keeps logs forever.
+- Add an S3 lifecycle rule that moves old documents to Standard-IA after 30 days.

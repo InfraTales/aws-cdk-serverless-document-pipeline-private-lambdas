@@ -1,5 +1,8 @@
 graph LR
-    Lambda --> APIGateway
-    APIGateway --> DDB
-    DDB --> S3
-    S3 --> VPC
+    A[Client sends file as base64 JSON] --> B[Authorizer checks key in api-keys table]
+    B --> C[apiHandler writes object to S3 with documentid metadata]
+    C --> D[apiHandler writes record: status UPLOADED]
+    D --> E[S3 ObjectCreated event]
+    E --> F[documentProcessor reads object metadata]
+    F --> G[Record updated: status PROCESSED]
+    F -.->|fails after 2 retries| H[Dead-letter queue]

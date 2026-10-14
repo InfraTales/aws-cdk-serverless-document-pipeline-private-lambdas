@@ -1,9 +1,25 @@
 sequenceDiagram
-    User->>Lambda: Request
-    Lambda->>APIGateway: Request
-    APIGateway->>DDB: Request
-    DDB->>S3: Request
-    S3-->>DDB: Response
-    DDB-->>APIGateway: Response
-    APIGateway-->>Lambda: Response
-    Lambda-->>User: Response
+    participant C as Client
+    participant G as API Gateway
+    participant A as Authorizer
+    participant H as apiHandler
+    participant S as S3
+    participant D as DynamoDB
+    participant P as documentProcessor
+
+    C->>G: POST /documents (X-Api-Key, base64 file)
+    G->>A: authorize
+    A->>D: GetItem api-keys
+    D-->>A: key found
+    A-->>G: Allow, userId
+    G->>H: invoke
+    H->>S: PutObject documents/<id>/<file>
+    H->>D: PutItem status=UPLOADED
+    H-->>C: 201 {documentId}
+    S-)P: ObjectCreated event
+    P->>S: HeadObject (metadata)
+    P->>D: UpdateItem status=PROCESSED
+    C->>G: GET /documents/{id}
+    G->>H: invoke
+    H->>D: Query documentId
+    H-->>C: 200 {status: PROCESSED}

@@ -1,52 +1,22 @@
-# Security Policy
+# Security policy
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-We take security seriously at InfraTales. If you discover a security vulnerability, please report it responsibly.
+Please don't open a public issue for a security problem. Email **rahul.ladumor@infratales.com** instead and include:
 
-### How to Report
+- what the problem is
+- the steps to reproduce it
+- what an attacker could do with it
+- a fix, if you have one
 
-1. **Do NOT** create a public GitHub issue for security vulnerabilities
-2. Email us at: **rahul.ladumor@infratales.com**
-3. Include detailed information about the vulnerability
-4. Allow reasonable time (48-72 hours) for initial response
+You'll get a first reply within 72 hours.
 
-### What to Include
+## Supported versions
 
-- Description of the vulnerability
-- Steps to reproduce
-- Potential impact
-- Any suggested fixes (optional)
+Only the latest commit on `main` gets fixes. This repo is the first version of the pipeline, kept for learning. For production use, start from [aws-cdk-private-lambda-document-intake](https://github.com/InfraTales/aws-cdk-private-lambda-document-intake).
 
-## Security Best Practices
+## Using this code safely
 
-When using this project:
-
-- ✅ Never commit AWS credentials or secrets to version control
-- ✅ Use IAM roles with least privilege principle
-- ✅ Enable CloudTrail for audit logging
-- ✅ Use AWS Secrets Manager for sensitive configuration
-- ✅ Enable encryption at rest and in transit
-- ✅ Use VPC endpoints for private AWS service access
-- ✅ Regularly rotate credentials and access keys
-- ✅ Enable MFA for AWS console access
-
-## Supported Versions
-
-| Version | Supported |
-|---------|-----------|
-| Latest  | ✅        |
-| < 1.0   | ❌        |
-
-## Contact
-
-- **Security Issues**: rahul.ladumor@infratales.com
-- **General Inquiries**: rahul.ladumor@infratales.com
-- **GitHub**: [@rahulladumor](https://github.com/rahulladumor)
-
----
-
-<div align="center">
-  <a href="https://github.com/InfraTales">InfraTales</a> •
-  <a href="https://infratales.com">Website</a>
-</div>
+- Keep AWS credentials and secrets out of git.
+- Read [docs/security.md](docs/security.md) for the gaps this version still has.
+- Run `cdk diff` before every deploy and check the IAM and security group changes.
