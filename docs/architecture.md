@@ -1,13 +1,34 @@
-# Architecture Notes
+# Architecture
 
-## Overview
+This page explains what each part of the stack does and how a document moves through it.
+## The four constructs
 
-The system composes four CDK stacks — NetworkingStack, StorageStack, ComputeStack, and ApiStack — wired together in a parent TapStack. Documents enter through API Gateway (Interface VPC endpoint), pass a Lambda Authorizer that validates API keys against DynamoDB, land in an encrypted S3 bucket, and immediately trigger a Document Processor Lambda that writes metadata back to DynamoDB with Streams enabled. The non-obvious design choice is zero NAT Gateways: all Lambda-to-AWS-service traffic routes exclusively through S3 and DynamoDB Gateway endpoints plus the API Gateway Interface endpoint, keeping Lambdas in fully isolated private subnets at no per-GB data cost. DynamoDB Streams then fan out to a Notification Lambda for downstream status updates, and a Dead Letter Queue catches any processing failures before they disappear silently. [from-code]
+`TapStack` wires together four CDK constructs:
 
-## Key Decisions
+| Construct | What it creates |
+|---|---|
+| `NetworkingStack` | A VPC with two isolated subnets, no NAT gateway, gateway endpoints for S3 and DynamoDB, and an interface endpoint for API Gateway |
+| `StorageStack` | A KMS key, the documents bucket, the `documents` table and the `api-keys` table |
+| `ComputeStack` | Three Lambda functions, their IAM roles, three dead-letter queues and five CloudWatch alarms |
+| `ApiStack` | The REST API, the Lambda authorizer, an API key and a usage plan |
+## How an upload works
 
-- Zero NAT Gateways saves ~$65-130/month per AZ but means Lambdas cannot reach any non-AWS internet endpoint — third-party virus scanning, webhook callbacks, or external validation APIs all break silently at runtime unless you add Interface endpoints or redesign the flow. [inferred]
-- API Gateway Interface VPC endpoint adds ~$16/month per AZ and roughly 1-2ms of latency per call compared to the public endpoint, but it is the only way to keep the API callable from inside the VPC without internet exposure. [inferred]
-- A Lambda Authorizer that validates API keys against DynamoDB on every request adds a cold-start-sensitive latency spike of 100-500ms and burns DynamoDB read capacity — authorizer caching (TTL 300s) is the fix, but caching means revoked keys stay valid for up to 5 minutes. [editorial]
-- DynamoDB Streams feeding a Notification Lambda creates at-least-once delivery semantics — duplicate processing of status updates is guaranteed under retry conditions, so the Notification Lambda must be idempotent or you will generate duplicate notifications in production. [inferred]
-- KMS encryption on CloudWatch Logs requires the KMS key policy to explicitly grant the logs.us-east-1.amazonaws.com service principal access, and this is the single most common deployment failure in setups like this — CDK does not enforce it automatically. [editorial]
+1. The client calls `POST /documents` with an `X-Api-Key` header and the file as base64 JSON.
+2. The authorizer looks the key up in the `api-keys` table and passes the `userId` on.
+3. The API function writes the file to S3 under `documents/<id>/` with the document ID in the object metadata. Then it stores a record with the status `UPLOADED`.
+4. S3 calls the document processor. It reads the object metadata, without downloading the file, and sets the status to `PROCESSED`.
+5. The client calls `GET /documents/{id}` to read the status.
+
+The diagrams in [`../diagrams/`](../diagrams/) show the same flow.
+## Why there's no NAT gateway
+
+All three functions run in isolated subnets. They reach S3 and DynamoDB through gateway endpoints, which have no hourly charge. Two NAT gateways would cost about $73 a month in us-east-1 before any traffic.
+
+The trade-off: the functions can't call anything on the internet. A third-party scanner or webhook would need an interface endpoint or a different design.
+## Things to know before you change it
+
+- **The authorizer reads DynamoDB on every request.** Its cache TTL is 0. A TTL of 300 seconds cuts the reads, but a revoked key then keeps working for up to 5 minutes.
+- **DynamoDB Streams are on** for the `documents` table. Nothing reads them yet. If you add one, make it safe to run twice, because streams deliver records at least once.
+- **Uploads pass through Lambda as base64.** API Gateway's 10 MB payload limit caps the file size.
+
+The [README](../README.md#known-issues-in-this-version) lists the known issues. The newer [aws-cdk-private-lambda-document-intake](https://github.com/InfraTales/aws-cdk-private-lambda-document-intake) repo fixes them.
