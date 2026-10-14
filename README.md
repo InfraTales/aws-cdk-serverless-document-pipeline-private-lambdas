@@ -1,150 +1,118 @@
 # InfraTales | AWS CDK Serverless Document Pipeline: Private Lambdas Without NAT Gateway
 
-**AWS CDK TYPESCRIPT reference architecture — serverless pillar | advanced level**
+AWS CDK (TypeScript) reference architecture. Serverless pillar, advanced level.
 
-> Every team eventually needs to accept documents from external clients — contracts, KYC uploads, compliance files — and the naive approach of dumping files into S3 with a pre-signed URL and hoping a Lambda picks it up breaks the moment you need audit trails, format validation, and access control that satisfies your security team. Building this with proper API authentication, VPC isolation, and event-driven processing without NAT Gateway costs is the part nobody blogs about honestly. This project solves that: a production-grade document ingestion pipeline that keeps Lambdas in private subnets, routes all AWS service traffic through VPC endpoints, and gates every API call behind a custom Lambda authorizer.
+> **Newer version:** [aws-cdk-private-lambda-document-intake](https://github.com/InfraTales/aws-cdk-private-lambda-document-intake) rebuilds this pipeline with presigned uploads, hashed API keys, endpoint policies and 35 tests. It fixes the ten problems listed under [Known issues in this version](#known-issues-in-this-version). This repo stays as the first version.
 
 [![License: InfraTales](https://img.shields.io/badge/License-InfraTales-blue.svg)](LICENSE)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-[![AWS](https://img.shields.io/badge/AWS-Cloud-FF9900?logo=amazon-aws)](https://aws.amazon.com/)
-[![AWS%20CDK%20TYPESCRIPT](https://img.shields.io/badge/AWS%20CDK%20TYPESCRIPT-IaC-purple.svg)](https://aws.amazon.com/cdk/)
+[![AWS CDK TypeScript](https://img.shields.io/badge/AWS%20CDK-TypeScript-purple.svg)](https://aws.amazon.com/cdk/)
 [![Level](https://img.shields.io/badge/Level-advanced-orange.svg)](https://infratales.com/p/30e5996f-81d1-4c49-a469-31607e45f66b/)
-[![InfraTales](https://img.shields.io/badge/InfraTales-Reference%20Architecture-red.svg)](https://infratales.com)
 
+Teams that take documents from outside (contracts, KYC uploads, compliance files) need more than a bucket and a presigned URL. They need an audit trail, a format check and access control that a security review will accept. This project puts all of that behind an authenticated API, keeps the Lambda functions in private subnets, and does it without a NAT gateway.
 
-## 📋 Table of Contents
+## What's in it
 
-- [Overview](#-overview)
-- [Architecture](#-architecture)
-- [Key Design Decisions](#-key-design-decisions)
-- [Getting Started](#-getting-started)
-- [Deployment](#-deployment)
-- [Docs](#-docs)
-- [Full Guide](#-full-guide-on-infratales)
-- [License](#-license)
+The app has four CDK constructs, `NetworkingStack`, `StorageStack`, `ComputeStack` and `ApiStack`, wired together in `TapStack`.
 
----
+1. A client calls API Gateway with an `X-Api-Key` header.
+2. A Lambda authorizer looks the key up in a DynamoDB table.
+3. The API function takes the file as base64 JSON, writes it to an encrypted S3 bucket under `documents/`, and stores a record in DynamoDB with the status `UPLOADED`.
+4. S3 triggers the document processor, which reads the object's metadata and marks the record `PROCESSED`.
+5. Failed processor runs end up in a dead-letter queue. DynamoDB Streams are on for the documents table if you want to attach a consumer for status changes (this repo doesn't include one).
 
-## 🎯 Overview
+The Lambda functions run in isolated subnets with no NAT gateway. They reach S3 and DynamoDB through gateway endpoints, which have no hourly charge.
 
-The system composes four CDK stacks — NetworkingStack, StorageStack, ComputeStack, and ApiStack — wired together in a parent TapStack. Documents enter through API Gateway (Interface VPC endpoint), pass a Lambda Authorizer that validates API keys against DynamoDB, land in an encrypted S3 bucket, and immediately trigger a Document Processor Lambda that writes metadata back to DynamoDB with Streams enabled. The non-obvious design choice is zero NAT Gateways: all Lambda-to-AWS-service traffic routes exclusively through S3 and DynamoDB Gateway endpoints plus the API Gateway Interface endpoint, keeping Lambdas in fully isolated private subnets at no per-GB data cost. DynamoDB Streams then fan out to a Notification Lambda for downstream status updates, and a Dead Letter Queue catches any processing failures before they disappear silently. [from-code]
+See [`diagrams/`](diagrams/) for the architecture, sequence and data flow diagrams, and [`docs/architecture.md`](docs/architecture.md) for each component's job.
 
-**Pillar:** SERVERLESS — part of the [InfraTales AWS Reference Architecture series](https://infratales.com).
-**Target audience:** advanced cloud and DevOps engineers building production AWS infrastructure.
+## Design decisions
 
----
+- **No NAT gateway.** That saves about $73 a month for two AZs in us-east-1. The price is that the functions can't call anything on the internet. A third-party virus scanner, a webhook or an external validation API would fail until you add an interface endpoint or change the design.
+- **An API Gateway interface endpoint** sits in the VPC. It costs about $7.30 a month per AZ. In this version nothing calls it, which is one of the known issues below.
+- **The authorizer checks DynamoDB on every request.** A cache TTL of 300 seconds would cut those reads, at the cost of revoked keys working for up to 5 minutes.
+- **DynamoDB Streams deliver at least once.** Any consumer you add has to cope with duplicates.
+- **KMS-encrypted CloudWatch Logs** need the key policy to allow the `logs.<region>.amazonaws.com` service principal. CDK doesn't add that for you, and it's a common reason deployments fail.
 
-## 🏗️ Architecture
+The [full guide on InfraTales](https://infratales.com/p/30e5996f-81d1-4c49-a469-31607e45f66b/) covers the cost model, the alternatives and what breaks at scale.
 
-```mermaid
-graph LR
-    Lambda --> APIGateway --> DDB --> S3 --> VPC
-```
+## Getting started
 
-> 📐 See [`diagrams/`](diagrams/) for full architecture, sequence, and data flow diagrams.
-
-> Architecture diagrams in [`diagrams/`](diagrams/) show the full service topology (architecture, sequence, and data flow).
-> The [`docs/architecture.md`](docs/architecture.md) file covers component responsibilities and data flow.
-
----
-
-## 🔑 Key Design Decisions
-
-- Zero NAT Gateways saves ~$65-130/month per AZ but means Lambdas cannot reach any non-AWS internet endpoint — third-party virus scanning, webhook callbacks, or external validation APIs all break silently at runtime unless you add Interface endpoints or redesign the flow. [inferred]
-- API Gateway Interface VPC endpoint adds ~$16/month per AZ and roughly 1-2ms of latency per call compared to the public endpoint, but it is the only way to keep the API callable from inside the VPC without internet exposure. [inferred]
-- A Lambda Authorizer that validates API keys against DynamoDB on every request adds a cold-start-sensitive latency spike of 100-500ms and burns DynamoDB read capacity — authorizer caching (TTL 300s) is the fix, but caching means revoked keys stay valid for up to 5 minutes. [editorial]
-- DynamoDB Streams feeding a Notification Lambda creates at-least-once delivery semantics — duplicate processing of status updates is guaranteed under retry conditions, so the Notification Lambda must be idempotent or you will generate duplicate notifications in production. [inferred]
-- KMS encryption on CloudWatch Logs requires the KMS key policy to explicitly grant the logs.us-east-1.amazonaws.com service principal access, and this is the single most common deployment failure in setups like this — CDK does not enforce it automatically. [editorial]
-
-> For the full reasoning behind each decision — cost models, alternatives considered, and what breaks at scale — see the **[Full Guide on InfraTales](https://infratales.com/p/30e5996f-81d1-4c49-a469-31607e45f66b/)**.
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
+You need Node.js 20 or newer (CI uses 24), the AWS CLI with credentials, and CDK bootstrapped in your account:
 
 ```bash
-node >= 18
-npm >= 9
-aws-cdk >= 2.x
-AWS CLI configured with appropriate permissions
+git clone https://github.com/InfraTales/aws-cdk-serverless-document-pipeline-private-lambdas.git
+cd aws-cdk-serverless-document-pipeline-private-lambdas
+npm ci
+npm run check   # type check, tests, cdk synth
+npx cdk bootstrap aws://YOUR_ACCOUNT_ID/YOUR_REGION   # once per account and region
 ```
 
-### Install
+## Deploy
 
 ```bash
-git clone https://github.com/InfraTales/<repo-name>.git
-cd <repo-name>
-npm install
-```
-
-### Bootstrap (first time per account/region)
-
-```bash
-cdk bootstrap aws://YOUR_ACCOUNT_ID/YOUR_REGION
-```
-
----
-
-## 📦 Deployment
-
-```bash
-# Review what will be created
-cdk diff --context env=dev
+# See what will change
+npx cdk diff -c environmentSuffix=dev
 
 # Deploy to dev
-cdk deploy --context env=dev
+npx cdk deploy -c environmentSuffix=dev
 
-# Deploy to production (requires broadening approval)
-cdk deploy --context env=prod --require-approval broadening
+# Deploy to prod and approve any security-related changes by hand
+npx cdk deploy -c environmentSuffix=prod --require-approval broadening
 ```
 
-> ⚠️ Always run `cdk diff` before deploying to production. Review all IAM and security group changes.
+Run `cdk diff` before every production deploy and read the IAM and security group changes.
 
----
+### Try the API
 
-## 📂 Docs
+Add a client to the API keys table. This version stores keys as plain text (see the known issues):
 
-| Document | Description |
+```bash
+aws dynamodb put-item --table-name api-keys-dev \
+  --item '{"apiKey":{"S":"my-test-key"},"userId":{"S":"user-1"}}'
+```
+
+Upload a file as base64 JSON, then list your documents:
+
+```bash
+curl -X POST "$API_URL/documents" -H "X-Api-Key: my-test-key" -H "Content-Type: application/json" \
+  -d "{\"fileName\":\"hello.txt\",\"contentType\":\"text/plain\",\"content\":\"$(echo hello | base64)\"}"
+curl "$API_URL/documents" -H "X-Api-Key: my-test-key"
+```
+
+The document shows `UPLOADED` first and `PROCESSED` once the processor has run. `$API_URL` is the `ApiUrl` output from the deploy.
+
+## Known issues in this version
+
+The newer repo fixes all ten:
+
+1. An API Gateway interface endpoint that no function calls (about $14.60 a month for two AZs).
+2. The authorizer cache TTL is 0, so every request runs the authorizer and a DynamoDB read.
+3. The usage plan never applies, because the methods don't require the API key.
+4. CORS allows every origin.
+5. API keys sit in the table as plain text.
+6. The DLQs on the authorizer and API functions do nothing. API Gateway calls those two and waits for the answer, and DLQs only cover async calls.
+7. The VPC default security group still allows traffic.
+8. The bucket has no S3 Bucket Key and accepts plain HTTP.
+9. `RemovalPolicy.DESTROY` on tables that hold document metadata.
+10. Log groups keep logs forever.
+
+Uploads also pass through Lambda as base64, so API Gateway's 10 MB payload limit caps the file size.
+
+## Docs
+
+| Document | What's in it |
 |---|---|
-| [Architecture](docs/architecture.md) | System design, component responsibilities, data flow |
-| [Runbook](docs/runbook.md) | Operational runbook for on-call engineers |
-| [Cost Model](docs/cost.md) | Cost breakdown by component and environment (₹) |
-| [Security](docs/security.md) | Security controls, IAM boundaries, compliance notes |
-| [Troubleshooting](docs/troubleshooting.md) | Common issues and fixes |
+| [Architecture](docs/architecture.md) | Components, their jobs and the data flow |
+| [Runbook](docs/runbook.md) | What to do when something breaks |
+| [Cost model](docs/cost.md) | Cost by component and environment (₹) |
+| [Security](docs/security.md) | Controls, IAM boundaries, compliance notes |
+| [Troubleshooting](docs/troubleshooting.md) | Common problems and fixes |
 
----
+## Contributing and security
 
-## 📖 Full Guide on InfraTales
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to send changes and [SECURITY.md](SECURITY.md) for how to report a vulnerability.
 
-This repo contains **sanitized reference code**. The full production guide covers:
+## License
 
-- Complete AWS CDK TYPESCRIPT stack walkthrough with annotated code
-- Step-by-step deployment sequence with validation checkpoints
-- Edge cases and failure modes — what breaks in production and why
-- Cost breakdown by component and environment
-- Alternatives considered and the exact reasons they were ruled out
-- Post-deploy validation checklist
+See [LICENSE](LICENSE). The code is here for reference and learning.
 
-**→ [Read the Full Production Guide on InfraTales](https://infratales.com/p/30e5996f-81d1-4c49-a469-31607e45f66b/)**
-
----
-
-## 🤝 Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. Issues and PRs welcome.
-
-## 🔒 Security
-
-See [SECURITY.md](SECURITY.md) for our security policy and how to report vulnerabilities responsibly.
-
-## 📄 License
-
-See [LICENSE](LICENSE) for terms. Source code is provided for reference and learning.
-
----
-
-<p align="center">
-  Built by <a href="https://www.rahulladumor.com">Rahul Ladumor</a> | <a href="https://infratales.com">InfraTales</a> — Production AWS Architecture for Engineers Who Build Real Systems
-</p>
+Built by [Rahul Ladumor](https://www.rahulladumor.com) | [InfraTales](https://infratales.com)

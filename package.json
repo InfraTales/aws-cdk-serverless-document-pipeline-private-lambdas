@@ -1,0 +1,31 @@
+{
+  "name": "aws-cdk-serverless-document-pipeline-private-lambdas",
+  "version": "1.0.0",
+  "description": "First version of the InfraTales private-Lambda document pipeline. CDK, TypeScript.",
+  "private": true,
+  "bin": {
+    "tap": "bin/tap.js"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "jest",
+    "synth": "cdk synth --quiet",
+    "check": "npm run build && npm test && npm run synth"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.273.0",
+    "constructs": "^10.8.1"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1151.0",
+    "@aws-sdk/client-s3": "^3.1151.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.6.5",
+    "aws-cdk": "^2.1145.0",
+    "aws-sdk-client-mock": "^4.1.0",
+    "jest": "^30.5.2",
+    "ts-jest": "^29.4.14",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
