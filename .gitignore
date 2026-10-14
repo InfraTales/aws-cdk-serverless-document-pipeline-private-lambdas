@@ -18,6 +18,9 @@ cdk.out/
 node_modules/
 *.js
 !jest.config.js
+# Lambda handlers are plain JavaScript loaded by lambda.Code.fromAsset('lib/lambda').
+# The rule above hid them, so they never reached the repo and synth failed.
+!lib/lambda/*.js
 *.d.ts
 .aws-sam/
 

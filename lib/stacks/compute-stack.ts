@@ -161,7 +161,7 @@ export class ComputeStack extends Construct {
 
     // Lambda Functions with external code and error handling
     this.authorizerFunction = new lambda.Function(this, 'AuthorizerFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       handler: 'authorizer.handler',
       code: lambda.Code.fromAsset('lib/lambda'),
       role: authorizerRole,
@@ -182,7 +182,7 @@ export class ComputeStack extends Construct {
       this,
       'DocumentProcessorFunction',
       {
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_24_X,
         handler: 'documentProcessor.handler',
         code: lambda.Code.fromAsset('lib/lambda'),
         role: documentProcessorRole,
@@ -201,7 +201,7 @@ export class ComputeStack extends Construct {
     );
 
     this.apiHandlerFunction = new lambda.Function(this, 'ApiHandlerFunction', {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       handler: 'apiHandler.handler',
       code: lambda.Code.fromAsset('lib/lambda'),
       role: apiHandlerRole,
